@@ -13,7 +13,7 @@ begin
     end
 
     create_table :products do |t|
-      t.integer :color_id, null: false
+      t.integer :color_id, null: false, index: true
       t.uuid :color_internal_id
       t.string :name, null: false
     end
@@ -24,9 +24,14 @@ begin
   color_names = ['Red', 'Blue', 'Green', 'Yellow', 'Purple']
   colors = color_names.map do |name|
     color = Color.create!(name: name)
+    raise "Expected color to have internal_id, got nil" if color.internal_id.nil?
+
     puts "  Created color: #{name} (id: #{color.id}, internal_id: #{color.internal_id})"
     color
   end
+
+  raise "Expected to create 5 colors, got #{colors.size}" unless colors.size == 5
+
   puts "✓ Created #{colors.size} colors"
 
   puts "\n=== Step 3: Creating 10 products with color_id references ==="
@@ -36,8 +41,13 @@ begin
       name: "Product #{i + 1}",
       color_id: color.id  # Using integer ID for now
     )
+    raise "Expected product.color_id to equal color.id, got #{product.color_id} vs #{color.id}" unless product.color_id == color.id
+
     puts "  Created: #{product.name} -> color_id: #{product.color_id} (#{color.name})"
   end
+
+  raise "Expected to create 10 products, got #{Product.count}" unless Product.count == 10
+
   puts "✓ Inserted 10 products"
 
   puts "\n=== Step 4: Verifying products before sync ==="
@@ -46,6 +56,9 @@ begin
     puts "  Product: #{product.name}"
     puts "    color_id: #{product.color_id} (integer)"
     puts "    color_internal_id: #{product.color_internal_id.inspect} (should be nil)"
+
+    raise "Expected color_internal_id to be nil before sync, got: #{product.color_internal_id}" if product.color_internal_id.present?
+
     puts "    -> references Color: #{color.name} (internal_id: #{color.internal_id})"
   end
 
@@ -53,14 +66,25 @@ begin
   sync_count = 0
   Product.find_each do |product|
     color = Color.find(product.color_id)
+    raise "Could not find color with id: #{product.color_id}" unless color
+
     product.update!(color_internal_id: color.internal_id)
+    raise "Failed to sync color_internal_id for product #{product.id}" if product.color_internal_id != color.internal_id
+
     sync_count += 1
   end
+
+  raise "Expected to sync 10 products, synced #{sync_count}" unless sync_count == 10
+
   puts "✓ Synced #{sync_count} products"
 
   puts "\n=== Step 6: Verifying products after sync ==="
   Product.limit(5).each do |product|
+    raise "Expected color_internal_id to be present after sync, got nil" if product.color_internal_id.nil?
+
     color = Color.find_by(internal_id: product.color_internal_id)
+    raise "Could not find color with internal_id: #{product.color_internal_id}" unless color
+
     puts "  Product: #{product.name}"
     puts "    color_id: #{product.color_id} (integer)"
     puts "    color_internal_id: #{product.color_internal_id} (UUID)"
@@ -72,8 +96,7 @@ begin
   puts "\n  Products with NULL color_internal_id: #{null_count}/#{Product.count}"
 
   if null_count > 0
-    puts "  ✗ ERROR: Some products still have NULL color_internal_id!"
-    raise "Cannot proceed with migration - NULL values detected"
+    raise "Cannot proceed with migration - #{null_count} products still have NULL color_internal_id!"
   else
     puts "  ✓ All products have valid color_internal_id values"
   end
@@ -96,7 +119,11 @@ begin
 
   puts "\n=== Step 8: Verifying products after migration ==="
   Product.limit(5).each do |product|
+    raise "Expected color_id to be present after migration, got nil" if product.color_id.nil?
+
     color = Color.find_by(internal_id: product.color_id)
+    raise "Could not find color with internal_id: #{product.color_id}" unless color
+
     puts "  Product: #{product.name}"
     puts "    color_id: #{product.color_id} (UUID - was color_internal_id)"
     puts "    -> references Color: #{color.name}"
@@ -105,11 +132,11 @@ begin
   puts "\n=== Step 9: Checking for empty values after migration ==="
   empty_color_count = Product.where(color_id: nil).count
 
-  if empty_color_count == 0
-    puts "✓ No empty values found! All #{count_before} products have valid UUID color_id"
-  else
-    puts "✗ Found #{empty_color_count} products with NULL color_id!"
+  if empty_color_count > 0
+    raise "Migration failed - #{empty_color_count} products have NULL color_id after migration!"
   end
+
+  puts "✓ No empty values found! All #{count_before} products have valid UUID color_id"
 
   puts "\n=== Step 10: Verifying table structure ==="
   product_columns = ActiveRecord::Base.connection.columns(:products)
