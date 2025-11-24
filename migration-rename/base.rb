@@ -15,7 +15,7 @@ PGPORT = 5132
 
 # Inicializa o container do PostgreSQL
 puts "Starting PostgreSQL container..."
-$postgres = Testcontainers::DockerContainer.new("postgres:18.1")
+$postgres = Testcontainers::DockerContainer.new("postgres:18")
   .with_env("POSTGRES_PASSWORD", "postgres")
   .with_env("POSTGRES_USER", "postgres")
   .with_env("POSTGRES_DB", "test_db")
